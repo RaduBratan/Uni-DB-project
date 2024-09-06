@@ -1,0 +1,156 @@
+Exercițiul 12:
+Problema 1.
+Enunț: Găsește toate jocurile care rulează pe o consolă lansată de o anumită companie și care au o notă a criticilor mai mare decât media notelor tuturor jocurilor. Utilizează o subcerere sincronizată în care intervin cel puțin 3 tabele.
+SELECT J.NUME -- selecteaza numele jocurilor
+FROM JOC J
+WHERE J.ID_JOC IN (
+    SELECT R.ID_JOC -- selecteaza ID-urile jocurilor care ruleaza pe consolele construite de companie
+    FROM RULEAZA R
+    WHERE R.ID_CONSOLA IN (
+        SELECT C.ID_CONSOLA -- selecteaza ID-urile consolelor construite de companie
+        FROM CONSOLA C
+        WHERE C.ID_CONSOLA IN (
+            SELECT CONSTR.ID_CONSOLA -- selecteaza ID-urile consolelor din relatia CONSTRUIESTE
+            FROM CONSTRUIESTE CONSTR
+            WHERE CONSTR.ID_COMPANIE_CONSOLA IN (
+                SELECT COMP.ID_COMPANIE_CONSOLA -- selecteaza ID-urile companiilor
+                FROM COMPANIE_CONSOLA COMP
+                WHERE COMP.NUME = 'Nintendo' -- cauta o companie cu un nume specific
+            )
+        )
+    )
+)
+AND J.NOTA_CRITICI > (
+    SELECT AVG(J2.NOTA_CRITICI) -- selecteaza media notelor criticiilor pentru toate jocurile
+    FROM JOC J2
+);
+
+Problema 2.
+Enunț: Află care este jocul cel mai nou pe care o companie l-a dezvoltat în ultimii 50 de ani. Problema va include subcereri nesincronizate în clauza FROM și utilizarea a două funcții pe date calendaristice.
+SELECT J.NUME, TO_CHAR(J.DATA_LANSARE, 'DD/MM/YYYY') -- selecteaza numele si data de lansare a jocurilor
+FROM JOC J
+INNER JOIN (
+    SELECT DJ.ID_JOC
+    FROM DEZVOLTA DJ
+    INNER JOIN JOC J2 ON DJ.ID_JOC = J2.ID_JOC
+    WHERE J2.DATA_LANSARE > ADD_MONTHS(SYSDATE, -50*12) -- selecteaza jocurile lansate in ultimii 50 de ani
+) DJ1
+ON J.ID_JOC = DJ1.ID_JOC
+WHERE J.DATA_LANSARE = (
+    SELECT MAX(J3.DATA_LANSARE)
+    FROM JOC J3
+    WHERE J3.ID_JOC = J.ID_JOC
+) -- selecteaza jocurile cu data de lansare cea mai recenta
+
+Problema 3.
+Enunț: Găsește toate consolele care au fost produse de companiile cu numărul de angajați mai mare decât media tuturor companiilor. Anterior, asigură-te că numești consolele cu 'NaN' dacă nu au nume, iar acolo unde lipsesc prețurile să apară ca "Absent", altfel "Prezent". Problema va include o grupare de date cu subcereri nesincronizate în care intervin cel puțin 3 tabele, funcții grup, filtrare la nivel de grupuri, ordonări și funcțiile NVL și DECODE.
+SELECT NVL(C.NUME, 'NaN') AS NUME, -- selecteaza numele consolelor
+       DECODE(C.PRET, NULL, 'Absent', 'Prezent') AS IS_PRET_PRESENT -- indica daca pretul este prezent sau absent
+FROM CONSOLA C
+INNER JOIN (
+    SELECT CONSTR.ID_CONSOLA -- selecteaza ID-urile consolelor care indeplinesc conditia
+    FROM CONSTRUIESTE CONSTR
+    INNER JOIN COMPANIE_CONSOLA CC ON CONSTR.ID_COMPANIE_CONSOLA = CC.ID_COMPANIE_CONSOLA
+    GROUP BY CONSTR.ID_CONSOLA
+    HAVING AVG(CC.NUMAR_ANGAJATI) > (
+        SELECT COUNT(*) -- selecteaza numarul total de companii
+        FROM COMPANIE_JOC CJ
+        INNER JOIN DEZVOLTA D ON CJ.ID_COMPANIE_JOC = D.ID_COMPANIE_JOC
+    )
+) TEMP
+ON C.ID_CONSOLA = TEMP.ID_CONSOLA
+ORDER BY C.NUME -- ordoneaza rezultatele dupa nume
+
+Problema 4.
+Enunț: Listează dezvoltatorii de emulatoare din țara 'România'. Afișează numele complet (chiar dacă acesta lipsește sau e parțial prezent), data de lansare a ultimului său emulator și dacă acesta a lucrat sau nu la un emulator care a avut peste 2000 de descărcări. Include, în această problemă, două funcții pe șiruri de caractere și o expresie CASE.
+SELECT 
+    COALESCE(D.NUME || ' ' || D.PRENUME, 'N/A') AS FULL_NAME, -- selecteaza numele complet
+    TO_CHAR(MAX(E.DATA_LANSARE), 'YYYY-MM-DD') AS LAST_RELEASE_DATE, -- selecteaza data ultimei lansari
+    CASE 
+        WHEN (SELECT COUNT(*) FROM PROGRAMEAZA P INNER JOIN EMULATOR E2 ON P.ID_EMULATOR = E2.ID_EMULATOR WHERE E2.NUMAR_DESCARCARI > 2000 AND P.ID_DEZVOLTATOR_EMULATOR = D.ID_DEZVOLTATOR_EMULATOR) > 0 THEN 'Yes'
+        ELSE 'No' -- indica daca dezvoltatorul a avut descarcari mari
+    END AS HAD_HIGH_DOWNLOADS
+FROM 
+    DEZVOLTATOR_EMULATOR D
+LEFT JOIN 
+    PROGRAMEAZA P
+ON 
+    D.ID_DEZVOLTATOR_EMULATOR = P.ID_DEZVOLTATOR_EMULATOR
+LEFT JOIN 
+    EMULATOR E
+ON 
+    P.ID_EMULATOR = E.ID_EMULATOR
+WHERE 
+    D.TARA_ORIGINE = 'Romania' -- selecteaza dezvoltatorii de emulatoare din Romania
+GROUP BY 
+    D.ID_DEZVOLTATOR_EMULATOR, D.NUME, D.PRENUME, D.EMAIL -- grupeaza rezultatele dupa ID-ul dezvoltatorului
+
+Problema 5.
+Enunț: Găsește numărul de jocuri dezvoltate de fiecare companie. Caută apoi companii care au produs mai multe jocuri decât media în ultimii 5 ani. Pentru această problemă, utilizează blocuri de cereri.
+WITH cte_companii_jocuri AS (
+SELECT 
+    CJ.NUME, -- selecteaza numele companiilor
+    COUNT(DISTINCT J.ID_JOC) AS NUMAR_JOCURI -- calculeaza numarul distinct de jocuri asociate fiecarei companii
+FROM 
+    COMPANIE_JOC CJ
+LEFT JOIN 
+    DEZVOLTA D 
+ON 
+    CJ.ID_COMPANIE_JOC = D.ID_COMPANIE_JOC
+LEFT JOIN 
+    JOC J 
+ON 
+    D.ID_JOC = J.ID_JOC
+WHERE 
+    J.DATA_LANSARE > ADD_MONTHS(SYSDATE, -5*12) -- selecteaza jocurile lansate in ultimii 5 ani
+GROUP BY 
+    CJ.NUME -- grupeaza rezultatele dupa numele companiei
+)
+
+SELECT 
+    NUME -- selecteaza numele companiilor care au un numar de jocuri mai mare decat media
+FROM 
+    cte_companii_jocuri
+WHERE 
+    NUMAR_JOCURI > (
+        SELECT 
+            AVG(NUMAR_JOCURI) -- calculeaza media numarului de jocuri pentru toate companiile
+        FROM 
+            cte_companii_jocuri
+    );
+
+-- -- --
+
+Exercițiul 13:
+Problema 1.
+Enunț: Selectează toate jocurile dezvoltate în SUA și mărește-le prețul cu 10%.
+UPDATE JOC
+SET PRET = PRET * 1.1 -- actualizeaza pretul jocurilor
+WHERE ID_JOC IN (
+  SELECT ID_JOC -- selecteaza ID-urile jocurilor
+  FROM COMPANIE_JOC
+  WHERE TARA_ORIGINE = 'SUA' -- cauta companiile cu tara de origine SUA
+);
+
+Problema 2.
+Enunț: Selectează toate consolele produse de compania Sony și crește numărul de vânzări cu 100 de unități pentru fiecare în parte.
+UPDATE CONSOLA
+SET NUMAR_VANZARI = NUMAR_VANZARI + 100 -- actualizeaza numarul de vanzari al consolelor
+WHERE ID_CONSOLA IN (
+  SELECT ID_CONSOLA -- selecteaza ID-urile consolelor
+  FROM COMPANIE_CONSOLA
+  WHERE NUME = 'Sony' -- cauta compania cu numele Sony
+);
+
+Problema 3.
+Enunț: Șterge emulatoarele care interpretează jocuri a căror companii au mai puțin de 100 de angajați.
+DELETE FROM EMULATOR -- apeleaza operatia de stergere
+WHERE ID_EMULATOR IN (
+  SELECT ID_EMULATOR -- selecteaza ID-urile emulatoarelor
+  FROM INTERPRETEAZA
+  WHERE ID_JOC IN (
+    SELECT ID_JOC -- selecteaza ID-urile jocurilor
+    FROM COMPANIE_JOC
+    WHERE NUMAR_ANGAJATI < 100 -- gaseste companiile cu mai putin de 100 de angajati
+  )
+);
